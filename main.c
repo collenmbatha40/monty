@@ -1,85 +1,46 @@
 #include "monty.h"
+#include <stdio.h>
 
-/*gvar_t gvar;*/
+stack_t *h;
+FILE *file;
+char *value;
+int mode;
+char *cmd;
 
 /**
- * main - Main function the program enters in
- * @argc: The number of arguments passed to the program
- * @argv: Pointer to array of pointers each pointing to an argument passed to
- * the program
- *i
- * Return: 0 on success
+ * stack_queue - Sets the format of the data to stack and queue.
+ *
+ * @stack: A pointer to a pointer to the begining of the stack
+ * implementation list.
+ * @line_number: The line number
+ *
  */
-int main(int argc, char **argv)
+
+void stack_queue(stack_t **stack, unsigned int line_number)
 {
-	gvar.stack = NULL;
-	gvar.line = NULL;
-	gvar.isStack = 1;
+	(void)stack;
+	(void)line_number;
 
-	if (argc != 2)
-	{
-		dprintf(STDERR_FILENO, "USAGE: monty file\n");
-		exit(EXIT_FAILURE);
-	}
-
-	openfile(argv[1]);
-	process();
-	cleanup();
-	return (0);
+	if (strcmp(cmd, "queue") == 0)
+		mode = 1;
+	else
+		mode = 0;
 }
 
 /**
- * openfile - Opens the monty file passed by the user
- * @name: The name of the file
+ * get_func - Maps functions to the corresponding opcode.
+ *
+ * @opcode: The opcode from the instruction.
+ *
+ * Return: A pointer to the function.
  */
-void openfile(char *name)
+
+void (*get_func(char *opcode))(stack_t**, unsigned int)
 {
-	FILE *file;
+	int index = 0;
 
-	file = fopen(name, "r");
-	if (file == NULL)
-	{
-		dprintf(STDERR_FILENO, "Error: Can't open file %s\n", name);
-		exit(EXIT_FAILURE);
-	}
-
-	gvar.file = file;
-}
-
-/**
- * process - processes the monty file line by line
- */
-void process(void)
-{
-	ssize_t read;
-	size_t len = 0;
-	char *opcode;
-
-	while ((read = getline(&gvar.line, &len, gvar.file)) != -1)
-	{
-		gvar.lineNum++;
-
-		opcode = strtok(gvar.line, " \t\n");
-		if (!opcode || opcode[0] == '#')
-			continue;
-
-		if (strcmp(opcode, "push") == 0)
-			push(strtok(NULL, " \t\n"));
-		else
-			runopcode(opcode, gvar.lineNum);
-	}
-}
-
-/**
- * runopcode - Runs a given opcode, unless it is invalid
- * @opcode: The opcode to run
- * @lineNum: The line number the opcode is on
- */
-void runopcode(char *opcode, unsigned int lineNum)
-{
-	unsigned int i;
-
-	instruction_t opcodes[] = {
+	instruction_t ops[] = {
+		{"push", push},
 		{"pall", pall},
 		{"pint", pint},
 		{"pop", pop},
@@ -87,47 +48,111 @@ void runopcode(char *opcode, unsigned int lineNum)
 		{"add", add},
 		{"nop", nop},
 		{"sub", sub},
-		{"div", divide},
+		{"div", divt},
 		{"mul", mul},
 		{"mod", mod},
 		{"pchar", pchar},
+		{"pstr", pstr},
 		{"rotl", rotl},
 		{"rotr", rotr},
-		{"pstr", pstr},
-		{"stack", to_stack},
-		{"queue", to_queue},
+		{"queue", stack_queue},
+		{"stack", stack_queue},
 		{NULL, NULL}
 	};
 
-	for (i = 0; opcodes[i].opcode; ++i)
+	while (ops[index].opcode)
 	{
-		if (strcmp(opcodes[i].opcode, opcode) == 0)
-		{
-			opcodes[i].f(&gvar.stack, lineNum);
-			return;
-		}
+		if (strcmp(opcode, ops[index].opcode) == 0)
+			return (ops[index].f);
+		index++;
 	}
 
-	dprintf(STDERR_FILENO, "L%u: unknown instruction %s\n", lineNum, opcode);
-	cleanup();
-	exit(EXIT_FAILURE);
+	return (NULL);
 }
 
 /**
- * cleanup - Function to clean up stack and file
+ * run_monty - Runs the opcode command.
+ *
+ * @buffer: The line instruction read from the given file.
+ * @line_number: The line number.
+ *
  */
-void cleanup(void)
-{
-	stack_t *item;
 
-	while (gvar.stack)
+void run_monty(char *buffer, unsigned int line_number)
+{
+	void (*f)(stack_t**, unsigned int);
+
+	cmd = strtok(buffer, " \r\t\n");
+
+	if (cmd && cmd[0] != '#')
 	{
-		item = gvar.stack->next;
-		free(gvar.stack);
-		gvar.stack = item;
+		f = get_func(cmd);
+
+		if (f != NULL)
+		{
+			if (strcmp(cmd, "push") == 0)
+				value = strtok(NULL, " \r\t\n");
+			f(&h, line_number);
+		}
+		else
+		{
+			error_op(line_number, cmd);
+			if (buffer)
+				free(buffer);
+			if (h)
+				free_dlistint(h);
+			exit(EXIT_FAILURE);
+		}
+	}
+}
+
+/**
+ * main - Entry point for the monty Interpreter.
+ *
+ * @ac: The number of arguments passed to the program.
+ * @av: The A pointer to an array of characters.
+ *
+ * Return: (EXIT_SUCCESS) on success (EXIT_FAILURE) on error
+ *
+ */
+
+int main(int ac, char **av)
+{
+	size_t status;
+	char *buffer = NULL;
+	unsigned int line_number = 0;
+
+	h = NULL;
+	value = NULL;
+	file = NULL;
+	mode = 0;
+	cmd = NULL;
+
+	if (ac != 2)
+	{
+		error_ac();
+		exit(EXIT_FAILURE);
 	}
 
-	free(gvar.line);
+	file = fopen(av[1], "r");
+	if (file == NULL)
+	{
+		error_fopen(av[1]);
+		exit(EXIT_FAILURE);
+	}
 
-	fclose(gvar.file);
+	while (getline(&buffer, &status, file) != EOF)
+	{
+		line_number++;
+		if (buffer[0] != '\n')
+			run_monty(buffer, line_number);
+	}
+
+	if (buffer)
+		free(buffer);
+	if (h)
+		free_dlistint(h);
+
+	fclose(file);
+	return (EXIT_SUCCESS);
 }
